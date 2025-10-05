@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Teleprompter App</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.2/mammoth.browser.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #f0f0f0;
+    }
+    #inputArea {
+      width: 80%;
+      margin-bottom: 15px;
+      font-size: 16px;
+    }
+    #displayArea {
+      width: 80%;
+      height: 60vh;
+      overflow: hidden;
+      background: white;
+      border: 1px solid #ccc;
+      position: relative;
+    }
+    #scrollingText {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: 100%;
+      white-space: pre-wrap;
+      padding: 20px;
+      font-size: 28px;
+      line-height: 1.5em;
+    }
+    #controls {
+      margin-top: 15px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+    }
+    button, input[type=range], label, input[type=file] {
+      margin: 5px;
+    }
+    label {
+      font-size: 14px;
+    }
+    audio {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎤 Teleprompter App</h1>
+
+  <textarea id="inputArea" rows="4" placeholder="Type or paste your script here..."></textarea><br/>
+  <button id="loadBtn">Load Text</button>
+
+  <!-- 🎯 NEW FILE UPLOADS -->
+  <div>
+    <label>Select .txt File:
+      <input type="file" id="txtFile" accept=".txt">
+    </label>
+    <label>Select .pdf File:
+      <input type="file" id="pdfFile" accept=".pdf">
+    </label>
+    <label>Select .docx File:
+      <input type="file" id="docxFile" accept=".docx">
+    </label>
+  </div>
+
+  <div>
+    <label>Upload Background Music (.mp3):
+      <input type="file" id="audioFile" accept=".mp3">
+    </label>
+    <audio id="audioPlayer" controls></audio>
+  </div>
+
+  <div id="displayArea">
+    <div id="scrollingText"></div>
+  </div>
+
+  <div id="controls">
+    <button id="startBtn">▶ Start</button>
+    <button id="pauseBtn">⏸ Pause</button>
+    <button id="stopBtn">⏹ Stop</button>
+    <button id="rewindBtn">⏪ Rewind</button>
+    <button id="forwardBtn">⏩ Forward</button>
+    <label>Speed:
+      <input id="speedControl" type="range" min="0.5" max="5" step="0.1" value="1">
+    </label>
+    <label>Font Size:
+      <input id="fontSizeControl" type="range" min="16" max="60" step="1" value="28">
+    </label>
+  </div>
+
+  <script>
+    const inputArea = document.getElementById('inputArea');
+    const scrollingText = document.getElementById('scrollingText');
+    const loadBtn = document.getElementById('loadBtn');
+    const startBtn = document.getElementById('startBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const rewindBtn = document.getElementById('rewindBtn');
+    const forwardBtn = document.getElementById('forwardBtn');
+    const speedControl = document.getElementById('speedControl');
+    const fontSizeControl = document.getElementById('fontSizeControl');
+    const txtFile = document.getElementById('txtFile');
+    const pdfFile = document.getElementById('pdfFile');
+    const docxFile = document.getElementById('docxFile');
+    const audioFile = document.getElementById('audioFile');
+    const audioPlayer = document.getElementById('audioPlayer');
+
+    let animationId;
+    let speed = parseFloat(speedControl.value);
+    let pos = 100;
+
+    function loadTextToTeleprompter(text) {
+      inputArea.value = text;
+      scrollingText.textContent = text;
+      pos = 100;
+      scrollingText.style.top = pos + "%";
+    }
+
+    function startScroll() {
+      cancelAnimationFrame(animationId);
+      animationId = requestAnimationFrame(step);
+      if (audioPlayer.src && audioPlayer.paused) {
+        audioPlayer.play();
+      }
+    }
+
+    loadBtn.addEventListener('click', () => {
+      loadTextToTeleprompter(inputArea.value);
+    });
+
+    txtFile.addEventListener('change', () => {
+      const file = txtFile.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          loadTextToTeleprompter(e.target.result);
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    pdfFile.addEventListener('change', () => {
+      const file = pdfFile.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function() {
+          const typedarray = new Uint8Array(reader.result);
+          pdfjsLib.getDocument(typedarray).promise.then(pdf => {
+            let allText = '';
+            const loadPages = async () => {
+              for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                const pageText = content.items.map(item => item.str).join(' ');
+                allText += pageText + '\n\n';
+              }
+              loadTextToTeleprompter(allText);
+            };
+            loadPages();
+          });
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
+
+    docxFile.addEventListener('change', () => {
+      const file = docxFile.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          mammoth.extractRawText({ arrayBuffer: event.target.result })
+            .then(result => {
+              loadTextToTeleprompter(result.value);
+            });
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
+
+    audioFile.addEventListener('change', () => {
+      const file = audioFile.files[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        audioPlayer.src = url;
+      }
+    });
+
+    function step() {
+      pos -= 0.05 * speed;
+      scrollingText.style.top = pos + "%";
+      const containerHeight = scrollingText.parentElement.offsetHeight;
+      const contentHeight = scrollingText.offsetHeight;
+      if (pos + (contentHeight / containerHeight * 100) > -10) {
+        animationId = requestAnimationFrame(step);
+      }
+    }
+
+    startBtn.addEventListener('click', startScroll);
+
+    pauseBtn.addEventListener('click', () => {
+      cancelAnimationFrame(animationId);
+      audioPlayer.pause();
+    });
+
+    stopBtn.addEventListener('click', () => {
+      cancelAnimationFrame(animationId);
+      pos = 100;
+      scrollingText.style.top = pos + "%";
+      audioPlayer.pause();
+      audioPlayer.currentTime = 0;
+    });
+
+    rewindBtn.addEventListener('click', () => {
+      pos += 5;
+      scrollingText.style.top = pos + "%";
+    });
+
+    forwardBtn.addEventListener('click', () => {
+      pos -= 5;
+      scrollingText.style.top = pos + "%";
+    });
+
+    speedControl.addEventListener('input', () => {
+      speed = parseFloat(speedControl.value);
+    });
+
+    fontSizeControl.addEventListener('input', () => {
+      scrollingText.style.fontSize = fontSizeControl.value + "px";
+    });
+  </script>
+</body>
+</html>
